@@ -8,13 +8,13 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod tidy
+RUN go mod download
 
 # Copy the source code into the container
 COPY main.go main.go
 
 # Build the Go app
-RUN go build -o myapp .
+RUN go build -o myapp
 
 # Start a new stage from scratch to copy only the binary
 FROM alpine:latest  
