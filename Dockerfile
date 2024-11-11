@@ -14,7 +14,7 @@ RUN go mod download
 COPY main.go main.go
 
 # Build the Go app
-RUN go build -o myapp
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o myapp .
 
 # Start a new stage from scratch to copy only the binary
 FROM alpine:latest  
