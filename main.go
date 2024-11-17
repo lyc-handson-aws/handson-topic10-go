@@ -173,11 +173,10 @@ func main() {
 	dynamoClient := dynamodb.NewFromConfig(cfg)
 	cwClient := cloudwatchlogs.NewFromConfig(cfg)
 
-	podName := os.Getenv("MY_POD_NAME")
 	podNamespace := os.Getenv("MY_POD_NAMESPACE")
 	podIp := os.Getenv("MY_POD_IP")
 
-	logStreamName := podNamespace + "-" + podName + "-" + podIp
+	logStreamName := podIp + "-POD-" + podNamespace
 
 	for {
 		// Generate a random sentence
