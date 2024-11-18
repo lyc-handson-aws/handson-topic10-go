@@ -89,6 +89,7 @@ func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn stri
 			Bucket: aws.String(bucketName),
 			Key:    aws.String("index.html"),
 			Body:   strings.NewReader(newMessage),
+			ContentType: aws.String("text/html"),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to upload file: %v", err)
