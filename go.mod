@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.66.2
 	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
+	golang.org/x/net v0.31.0
 )
 
 require (

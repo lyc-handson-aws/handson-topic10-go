@@ -12,7 +12,9 @@ import (
 	"time"
 	"errors"
 	"io/ioutil"
+	"bytes"
 	"github.com/brianvoe/gofakeit/v6"
+	"golang.org/x/net/html"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -24,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/matoous/go-nanoid/v2"
+
 )
 
 func generateRandomSentence() string {
@@ -56,7 +59,7 @@ func encryptMessage(kmsClient *kms.Client, kmsArn string, message string) (strin
 }
 
 
-func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn string, message string) error {
+func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn string, message string, logStreamName string,) error {
 	if strings.HasPrefix(arn, "arn:aws:s3") {
 		bucketName := strings.Split(arn, ":")[5]
 
@@ -65,7 +68,7 @@ func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn stri
 			Key:    aws.String("index.html"),
 		}
 
-		existingContent := ""
+		existingContent := "<html><body></body></html>"
 		result, err := s3Client.GetObject(context.TODO(), file)
 		if err != nil {
 			var nsk *s3types.NoSuchKey
@@ -81,14 +84,52 @@ func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn stri
 			defer result.Body.Close()
 		}
 
-		fmt.Printf("current s3 content is : %s\n", existingContent)
-
-		newMessage := existingContent + "\n" + message
+		doc, err := html.Parse(strings.NewReader(existingContent))
+		if err != nil {
+			return err
+		}
+	
+		var body *html.Node
+		var findBody func(*html.Node)
+		findBody = func(n *html.Node) {
+			if n.Type == html.ElementNode && n.Data == "body" {
+				body = n
+				return
+			}
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				findBody(c)
+			}
+		}
+		findBody(doc)
+	
+		// If body doesn't exist, create it
+		if body == nil {
+			body = &html.Node{Type: html.ElementNode, Data: "body"}
+			doc.AppendChild(body)
+		}
+	
+		// Append the new message as a new paragraph
+		newP := &html.Node{
+			Type: html.ElementNode,
+			Data: "p",
+		}
+		newP.AppendChild(&html.Node{
+			Type: html.TextNode,
+			Data: logStreamName + ": " + message,
+		})
+		body.AppendChild(newP)
+	
+		// Render the updated HTML
+		var buf bytes.Buffer
+		err = html.Render(&buf, doc)
+		if err != nil {
+			return err
+		}
 
 		_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
 			Bucket: aws.String(bucketName),
 			Key:    aws.String("index.html"),
-			Body:   strings.NewReader(newMessage),
+			Body:   bytes.NewReader(buf.Bytes()),
 			ContentType: aws.String("text/html"),
 		})
 		if err != nil {
@@ -102,7 +143,7 @@ func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn stri
 		//fmt.Printf("uuid is : %s\n", id)
 		item := map[string]dynamotypes.AttributeValue{
 			"id": &dynamotypes.AttributeValueMemberS{Value: id},
-			"message": &dynamotypes.AttributeValueMemberS{Value: message},
+			"message": &dynamotypes.AttributeValueMemberS{Value: logStreamName + ": " + message},
 		}
 		
 		_, err := dynamoClient.PutItem(context.TODO(), &dynamodb.PutItemInput{
@@ -197,7 +238,7 @@ func main() {
 		}
 
 		// Write the original message to storage
-		err = writeToStorage(s3Client, dynamoClient, storageArn, randomSentence)
+		err = writeToStorage(s3Client, dynamoClient, storageArn, randomSentence, logStreamName)
 		if err != nil {
 			log.Fatalf("Failed to write message to storage: %v", err)
 		}
