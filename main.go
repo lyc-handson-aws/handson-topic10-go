@@ -59,7 +59,7 @@ func encryptMessage(kmsClient *kms.Client, kmsArn string, message string) (strin
 }
 
 
-func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn string, message string, logStreamName string,) error {
+func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn string, message string, logStreamName string, currentTime string,) error {
 	if strings.HasPrefix(arn, "arn:aws:s3") {
 		bucketName := strings.Split(arn, ":")[5]
 
@@ -115,7 +115,7 @@ func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn stri
 		}
 		newP.AppendChild(&html.Node{
 			Type: html.TextNode,
-			Data: logStreamName + ": " + message,
+			Data: logStreamName + ": " + currentTime + " - " + message,
 		})
 		body.AppendChild(newP)
 	
@@ -143,7 +143,7 @@ func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn stri
 		//fmt.Printf("uuid is : %s\n", id)
 		item := map[string]dynamotypes.AttributeValue{
 			"id": &dynamotypes.AttributeValueMemberS{Value: id},
-			"message": &dynamotypes.AttributeValueMemberS{Value: logStreamName + ": " + message},
+			"message": &dynamotypes.AttributeValueMemberS{Value: logStreamName + ": " + currentTime + " - " + message},
 		}
 		
 		_, err := dynamoClient.PutItem(context.TODO(), &dynamodb.PutItemInput{
@@ -157,7 +157,7 @@ func writeToStorage(s3Client *s3.Client, dynamoClient *dynamodb.Client, arn stri
 }
 
 
-func writeToCloudWatchLog(cwClient *cloudwatchlogs.Client, logGroupArn string, encryptedMessage string, logStream string,) error {
+func writeToCloudWatchLog(cwClient *cloudwatchlogs.Client, logGroupArn string, encryptedMessage string, logStream string, currentTime string,) error {
 	logGroupName := strings.Split(logGroupArn, ":")[6]
 	logStreamName := logStream
 	
@@ -181,7 +181,7 @@ func writeToCloudWatchLog(cwClient *cloudwatchlogs.Client, logGroupArn string, e
 		LogEvents: []cwtypes.InputLogEvent{
 			{
 				Timestamp: aws.Int64(timestamp),
-				Message:   aws.String(encryptedMessage),
+				Message:   aws.String(currentTime + " - " + encryptedMessage),
 			},
 		},
 	}
@@ -220,10 +220,14 @@ func main() {
 
 	logStreamName := podIp + "-POD-" + podNamespace
 
+	timer := time.After(10 * time.Minute)
+
 	for {
 		// Generate a random sentence
 		randomSentence := generateRandomSentence()
-
+		
+		currentTime := time.Now().UTC().Format(time.RFC3339)
+		
 		// Encrypt the message using KMS
 		encryptedMessage, err := encryptMessage(kmsClient, kmsArn, randomSentence)
 		if err != nil {
@@ -232,13 +236,13 @@ func main() {
 		fmt.Printf("Hashed Encrypted message: %s\n", encryptedMessage)
 
 		// Write the encrypted message to CloudWatch Logs
-		err = writeToCloudWatchLog(cwClient, logGroupArn, encryptedMessage, logStreamName)
+		err = writeToCloudWatchLog(cwClient, logGroupArn, encryptedMessage, logStreamName, currentTime)
 		if err != nil {
 			log.Fatalf("Failed to write encrypted message to CloudWatch Logs: %v", err)
 		}
 
 		// Write the original message to storage
-		err = writeToStorage(s3Client, dynamoClient, storageArn, randomSentence, logStreamName)
+		err = writeToStorage(s3Client, dynamoClient, storageArn, randomSentence, logStreamName, currentTime)
 		if err != nil {
 			log.Fatalf("Failed to write message to storage: %v", err)
 		}
@@ -250,4 +254,6 @@ func main() {
 		fmt.Printf("Sleeping for %v...\n", sleepDuration)
 		time.Sleep(sleepDuration)
 	}
+
+	<-timer
 }
